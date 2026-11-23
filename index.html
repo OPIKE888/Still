@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>沉浸专注</title>
+<!--
+  沉浸专注 · 暖纸光感版（单文件应用）
+  视觉来源：Canvas界面设计预览.html（CONCEPT 02 · 暖纸光感）
+  功能规格：沉浸专注网页设计文档.md（REQ-001 ~ REQ-042，含 3.1.1 / 3.2.1 / 5.3.1）
+
+  纸面 = 安静的房间；陶土 = 专注；鼠尾草 = 休息；暖金 = 完成。
+  全部数据存 localStorage，零网络请求，断网可用。
+-->
+<style>
+/* ============================================================
+   SECTION 1 · 色板与基础变量（暖纸光感）
+   ============================================================ */
+@property --accent-soft{syntax:"<color>";inherits:true;initial-value:#F0DCD2}
+:root{
+  --paper:#F7F4EE;        /* 纸面 */
+  --paper-2:#EFEBE2;      /* 次级纸面 */
+  --paper-3:#E5DFD4;      /* 环形轨道 / 柱底 */
+  --ink:#332F2A;          /* 墨字 */
+  --ink-2:#8D857A;        /* 次要文字 */
+  --ink-3:#B5ADA1;        /* 更淡的辅助 */
+  --line:#DED8CD;         /* 描边 */
+  --focus:#D2704C;        /* 专注 · 陶土 */
+  --focus-soft:#F0DCD2;
+  --rest:#6F9A7E;         /* 休息 · 鼠尾草 */
+  --rest-soft:#DBE8DC;
+  --done:#C9A227;         /* 完成 · 暖金 */
+  --done-soft:#F2E8C8;
+  --accent:var(--focus);
+  --accent-soft:var(--focus-soft);
+  --ring-c:552.92;        /* 2πr, r=88 */
+  --ease-out:cubic-bezier(.22,.61,.36,1);
+  --shadow:0 18px 50px rgba(60,52,40,.13),0 2px 8px rgba(60,52,40,.08);
+  --font-pian:"HanziPenSC-W5","HanziPen SC Bold","翩翩体-简 粗体","翩翩体-简","STKaiti","Kaiti SC","KaiTi",cursive,system-ui;
+}
+body.rest{--accent:var(--rest);--accent-soft:var(--rest-soft)}
+body.done{--accent:var(--done);--accent-soft:var(--done-soft)}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font:100%/1.5 var(--font-pian);
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+  transition:background-color .8s var(--ease-out),--accent-soft .8s var(--ease-out);
+}
+/* 中心柔光：静止的“光感”，不是装饰性动画 */
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse 58% 52% at 50% 46%,var(--accent-soft),transparent 72%);
+  opacity:.52;
+}
+/* 极淡纸纹网点，呼应设计预览的画布质感 */
+body::after{
+  content:"";position:fixed;inset:0;pointer-events:none;
+  background-image:radial-gradient(rgba(141,133,122,.11) .6px,transparent .6px);
+  background-size:22px 22px;opacity:.4;
+}
+
+/* ============================================================
+   SECTION 2 · 舞台与中央进度环
+   ============================================================ */
+.stage{position:fixed;inset:0;display:grid;place-items:center;z-index:1}
+.ring{
+  position:relative;width:min(72vmin,820px);height:min(72vmin,820px);
+  display:grid;place-items:center;isolation:isolate;
+}
+.ring-svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.ring-track{
+  fill:none;stroke:var(--paper-3);stroke-width:2.2;
+  transition:stroke .8s var(--ease-out);
+}
+.ring-progress{
+  fill:none;stroke:var(--accent);stroke-width:2.6;stroke-linecap:round;
+  stroke-dasharray:var(--ring-c);stroke-dashoffset:var(--ring-c);
+  filter:drop-shadow(0 0 7px var(--accent));
+  transition:stroke .8s var(--ease-out);
+}
+/* 休息段的呼吸引导光圈（V2 规格在预览中出现，这里一并落地） */
+@keyframes breathe{0%,100%{opacity:.72}50%{opacity:1}}
+body.rest .ring-progress{animation:breathe 5s ease-in-out infinite}
+.lap-dot{fill:var(--accent);opacity:.3;transition:opacity .4s var(--ease-out)}
+.ring-content{
+  position:relative;text-align:center;display:grid;gap:2.2vmin;justify-items:center;
+  padding:0 4vmin;
+}
+.phase-label{
+  font-size:clamp(11px,1.5vmin,17px);
+  font-weight:700;letter-spacing:.42em;text-indent:.42em;
+  text-transform:uppercase;color:var(--accent);
+  transition:color .8s var(--ease-out);
+}
+.time{
+  font-family:var(--font-pian);
+  font-size:clamp(56px,13vmin,210px);
+  font-weight:600;line-height:1;letter-spacing:-.035em;
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+  color:var(--accent);
+  text-shadow:0 0 .5em color-mix(in srgb,var(--accent) 22%,transparent);
+  transition:color .8s var(--ease-out);
+}
+.task-name{
+  font-size:clamp(14px,2.1vmin,24px);letter-spacing:.02em;
+  color:var(--ink-2);max-width:62vmin;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+
+/* 底边进度线 */
+.edge{position:fixed;left:0;right:0;bottom:0;height:3px;background:var(--paper-3);z-index:1}
+.edge-fill{
+  height:100%;width:0;background:var(--accent);
+  border-radius:0 99px 99px 0;
+  box-shadow:0 0 12px color-mix(in srgb,var(--accent) 42%,transparent);
+  transition:background-color .8s var(--ease-out);
+}
+
+/* ============================================================
+   SECTION 3 · 悬浮层：信息条 / 控制栏 / 弹层 / toast
+   ============================================================ */
+.hud{
+  position:fixed;top:24px;left:32px;right:32px;z-index:2;
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:clamp(11px,1.3vmin,15px);letter-spacing:.02em;color:var(--ink-2);
+}
+.hud b{color:var(--ink);font-weight:650;font-variant-numeric:tabular-nums}
+.hud .dots{display:flex;gap:7px}
+.hud .dots i{width:7px;height:7px;border-radius:50%;background:var(--line)}
+
+.dock{
+  position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:3;
+  display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;
+  max-width:min(94vw,1160px);padding:8px 10px;
+  border-radius:999px;
+  background:rgba(255,255,255,.74);
+  backdrop-filter:blur(18px) saturate(150%);
+  -webkit-backdrop-filter:blur(18px) saturate(150%);
+  border:1px solid var(--line);
+  box-shadow:var(--shadow);
+}
+.group{display:flex;align-items:center;gap:4px}
+.sep{width:1px;height:20px;background:var(--line);margin:0 3px}
+button,input,select{
+  font:inherit;font-size:clamp(11px,1.25vmin,14px);color:var(--ink);
+  background:transparent;border:1px solid transparent;border-radius:999px;
+  padding:8px 13px;outline:none;
+  transition:background-color .18s var(--ease-out),transform .1s var(--ease-out),border-color .18s var(--ease-out);
+}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none}
+button:hover{background:var(--paper-2)}
+button:active{transform:scale(.97)}
+button:focus-visible,input:focus-visible,select:focus-visible{
+  border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 20%,transparent)
+}
+/* 模式激活态：白底纸片 + 细阴影，对应预览里的 .cbtn.active */
+button.on{
+  background:#fff;color:var(--ink);font-weight:650;
+  border-color:var(--line);box-shadow:0 1px 3px rgba(60,52,40,.1);
+}
+/* 圆形播放键：强调色实底 */
+#btnToggle{
+  width:42px;height:42px;padding:0;border-radius:50%;
+  display:grid;place-items:center;flex:0 0 auto;
+  background:var(--accent);color:#fff;font-size:14px;
+  box-shadow:0 4px 14px color-mix(in srgb,var(--accent) 35%,transparent);
+  transition:background-color .8s var(--ease-out),transform .1s var(--ease-out);
+}
+#btnToggle:hover{background:var(--accent);filter:brightness(1.06)}
+#btnToggle:active{transform:scale(.93)}
+input[type=text]{
+  width:clamp(130px,16vw,220px);
+  background:rgba(255,255,255,.6);border-color:var(--line);
+}
+input[type=text]::placeholder{color:var(--ink-3)}
+
+/* 弹层：纸卡片 + 淡淡的墨色 scrim */
+.sheet{
+  position:fixed;inset:0;display:grid;place-items:center;z-index:20;
+  background:rgba(51,47,42,calc(var(--enter,0) * .26));
+  backdrop-filter:blur(calc(var(--enter,0) * 9px));
+  -webkit-backdrop-filter:blur(calc(var(--enter,0) * 9px));
+}
+.sheet[hidden]{display:none}
+.panel{
+  width:min(88vw,720px);max-height:80vh;overflow:auto;
+  padding:28px 30px 32px;border-radius:20px;
+  background:var(--paper);border:1px solid var(--line);
+  box-shadow:var(--shadow);
+  opacity:var(--enter,0);
+  transform:translateY(calc((1 - var(--enter,0)) * 16px)) scale(calc(.985 + var(--enter,0) * .015));
+}
+.panel h2{margin:0;font-size:19px;font-weight:680;letter-spacing:-.01em}
+.panel h3{margin:0;font-size:15px;font-weight:650}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px}
+.card>span{display:block;font-size:12px;color:var(--ink-2);margin-bottom:6px}
+.card strong{
+  font-size:clamp(22px,3.4vmin,34px);font-weight:680;
+  letter-spacing:-.03em;font-variant-numeric:tabular-nums;
+}
+.card small{font-size:13px;color:var(--ink-2);font-weight:500}
+.chart{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.ct{font-size:12px;color:var(--ink-2);margin-bottom:14px}
+.bars{display:flex;align-items:flex-end;gap:12px;height:120px}
+.bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.bar{
+  width:100%;max-width:34px;min-height:3px;
+  background:var(--paper-3);border-radius:6px 6px 0 0;
+  transition:height .5s var(--ease-out);
+}
+.bar.today{background:var(--focus);box-shadow:0 0 12px color-mix(in srgb,var(--focus) 32%,transparent)}
+.bar-label{font-size:11px;color:var(--ink-2);margin-top:8px}
+.notes{margin-top:24px}
+.notes .panel-head{margin-bottom:10px}
+.note-row{display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px dashed var(--line);font-size:13px}
+.note-row .t{color:var(--ink-2);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.note-row .txt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note-row.done .txt{color:var(--ink-3);text-decoration:line-through}
+.tiny{padding:5px 11px;font-size:11px;border:1px solid var(--line);background:#fff;border-radius:9px}
+.note-input{
+  width:100%;margin-top:12px;padding:12px 14px;font-size:14px;
+  background:#fff;border:1px solid var(--line);border-radius:12px;
+}
+.hint{font-size:11px;color:var(--ink-2);margin-top:10px;line-height:1.7}
+.field{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px dashed var(--line)}
+.field label{font-size:13px;color:var(--ink-2)}
+.field select,.field input[type=number]{
+  min-width:128px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;
+}
+.field input[type=range]{width:160px;padding:0;accent-color:var(--focus);border:0;background:transparent}
+
+.toast{
+  position:fixed;top:22px;left:50%;z-index:40;
+  transform:translate(-50%,calc((1 - var(--enter,0)) * -10px));
+  opacity:var(--enter,0);
+  padding:10px 18px;border-radius:999px;
+  background:var(--paper);border:1px solid var(--line);box-shadow:var(--shadow);
+  font-size:13px;color:var(--ink);letter-spacing:.01em;
+  pointer-events:none;
+}
+
+/* 闲置隐身：信息条与控制栏淡出，进度环与底边线保留 */
+.hud,.dock{transition:opacity .2s var(--ease-out)}
+body.idle .hud,body.idle .dock{opacity:0;pointer-events:none;transition-duration:.6s}
+body.idle{cursor:none}
+
+/* ============================================================
+   SECTION 4 · 无障碍降级与窄屏
+   ============================================================ */
+@media (prefers-reduced-motion:reduce){
+  .panel,.toast{transform:none!important;transition:opacity .2s ease!important}
+  .ring-progress,.edge-fill,.bar{transition:none}
+  body.rest .ring-progress{animation:none;opacity:1}
+}
+@media (prefers-reduced-transparency:reduce){
+  .dock{background:var(--paper);backdrop-filter:none;-webkit-backdrop-filter:none}
+  .panel,.toast{background:var(--paper);backdrop-filter:none;-webkit-backdrop-filter:none}
+  .sheet{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(51,47,42,.7)}
+}
+@media (prefers-contrast:more){
+  .dock,.panel,.toast{border-color:var(--ink-3)}
+  .hud,.phase-label,.task-name,.card>span,.ct{color:var(--ink)}
+}
+@media (max-width:720px){
+  .hud{left:18px;right:18px;top:16px}
+  .hud .dots{display:none}
+  .ring{width:88vmin;height:88vmin}
+  .ring-content{gap:1.6vmin}
+  .dock{bottom:12px;gap:4px;padding:7px 9px;border-radius:18px}
+  .sep{display:none}
+  input[type=text]{width:140px}
+}
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="ring" id="ring">
+    <svg class="ring-svg" viewBox="0 0 200 200" aria-hidden="true">
+      <circle class="ring-track" cx="100" cy="100" r="88"/>
+      <circle class="ring-progress" id="ringProgress" cx="100" cy="100" r="88"/>
+      <g id="lapMarks"></g>
+    </svg>
+    <div class="ring-content">
+      <div class="phase-label" id="phaseLabel">准备开始</div>
+      <div class="time" id="timeDisplay">25:00</div>
+      <div class="task-name" id="taskName">今天，专注一件事</div>
+    </div>
+  </div>
+</div>
+
+<div class="edge"><div class="edge-fill" id="edgeFill"></div></div>
+
+<header class="hud" id="hud">
+  <span>沉浸专注 · 今日 <b id="hudSec">00:00</b> · <b id="hudN">0</b> 段 · 连续 <b id="hudStreak">0</b> 天</span>
+  <span class="dots"><i></i><i></i><i></i></span>
+</header>
+
+<div class="dock" id="dock">
+  <input type="text" id="taskInput" placeholder="这一段时间，专注什么？" maxlength="80" aria-label="任务名">
+  <div class="sep"></div>
+  <div class="group" role="group" aria-label="计时模式">
+    <button type="button" class="on" data-mode="pomodoro">番茄钟</button>
+    <button type="button" data-mode="countdown">倒计时</button>
+    <button type="button" data-mode="stopwatch">正计时</button>
+  </div>
+  <button type="button" id="btnToggle" aria-label="开始">▶</button>
+  <div class="sep"></div>
+  <div class="group">
+    <button type="button" id="btnReset">重置</button>
+    <button type="button" id="btnFull">全屏</button>
+    <button type="button" id="btnNote">杂念</button>
+    <button type="button" id="btnStats">统计</button>
+    <button type="button" id="btnSettings">设置</button>
+  </div>
+</div>
+
+<!-- 统计弹层 -->
+<div class="sheet" id="statsSheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-label="专注统计">
+    <div class="panel-head"><h2>专注统计</h2><button type="button" class="tiny" data-close="statsSheet">关闭</button></div>
+    <div class="cards">
+      <div class="card"><span>今日时长</span><strong><b id="cardH">0</b><small> 时 </small><b id="cardM">0</b><small> 分</small></strong></div>
+      <div class="card"><span>完成段数</span><strong><b id="cardN">0</b><small> 段</small></strong></div>
+      <div class="card"><span>连续天数</span><strong><b id="cardStreak">0</b><small> 天</small></strong></div>
+    </div>
+    <div class="chart">
+      <div class="ct">近 7 天 · 分钟</div>
+      <div class="bars" id="chart" aria-label="近 7 天专注时长"></div>
+    </div>
+    <div class="notes">
+      <div class="panel-head"><h3>杂念记事本</h3><span class="hint" style="margin:0">最近 30 条</span></div>
+      <div id="noteList"></div>
+      <button type="button" class="tiny" id="btnClear" style="margin-top:14px">清空全部数据</button>
+    </div>
+  </div>
+</div>
+
+<!-- 设置弹层 -->
+<div class="sheet" id="settingsSheet" hidden>
+  <div class="panel" style="width:min(88vw,520px)" role="dialog" aria-modal="true" aria-label="设置">
+    <div class="panel-head"><h2>设置</h2><button type="button" class="tiny" data-close="settingsSheet">关闭</button></div>
+    <div class="field">
+      <label for="duration">倒计时时长</label>
+      <select id="duration" aria-label="倒计时预设时长">
+        <option value="15">15 分</option>
+        <option value="25" selected>25 分</option>
+        <option value="45">45 分</option>
+        <option value="60">60 分</option>
+        <option value="90">90 分</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="customMin">自定义（1–600 分）</label>
+      <input type="number" id="customMin" min="1" max="600" placeholder="分" aria-label="自定义分钟数">
+    </div>
+    <div class="field">
+      <label for="sound">环境音</label>
+      <select id="sound" aria-label="环境音">
+        <option value="off">无环境音</option>
+        <option value="rain">雨声</option>
+        <option value="waves">海浪</option>
+        <option value="fire">篝火</option>
+        <option value="fan">风扇</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="volume">音量</label>
+      <input type="range" id="volume" min="0" max="100" value="35" aria-label="环境音音量">
+    </div>
+    <div class="field" style="border-bottom:0">
+      <label>当前这一段</label>
+      <button type="button" id="btnEnd" style="font-size:12px;padding:7px 15px">结束本段</button>
+    </div>
+    <div class="hint">空格 开始/暂停 · R 重置 · S 结束本段 · N 记杂念 · F 全屏</div>
+  </div>
+</div>
+
+<!-- 杂念弹层 -->
+<div class="sheet" id="noteSheet" hidden>
+  <div class="panel" style="width:min(88vw,520px)" role="dialog" aria-modal="true" aria-label="记下杂念">
+    <div class="panel-head"><h2>冒出了什么念头？</h2><button type="button" class="tiny" data-close="noteSheet">取消</button></div>
+    <input type="text" class="note-input" id="noteInput" placeholder="写下来，然后回到专注" maxlength="140">
+    <div class="hint">回车保存并回到专注 · Esc 放弃</div>
+  </div>
+</div>
+
+<div class="toast" id="toast" style="--enter:0"></div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b) => Math.min(b,Math.max(a,v));
+
+/* ============================================================
+   SECTION 5 · state：全局状态机
+   ============================================================ */
+const DEFAULTS = {
+  pomodoro:{focus:25*60, short:5*60, long:15*60},
+  countdown:25*60
+};
+const state = {
+  mode:'pomodoro',        // pomodoro | countdown | stopwatch
+  phase:'focus',          // focus | short | long | countdown | stopwatch
+  running:false,
+  remaining:DEFAULTS.pomodoro.focus,
+  elapsed:0,              // 正计时累计秒
+  cycle:0,                // 本循环已完成的专注段数（0..3）
+  customMin:25,
+  task:'',
+  sound:'off',
+  volume:.35,
+  endPerf:0,              // performance.now() 基准的终点
+  lastPerf:0,
+  lastWall:0,
+  raf:null,
+  lock:null,
+  dirty:false,
+  saveTick:0
+};
+const pointer = {x:-9999,y:-9999};
+const isFocusLike = () => (state.mode==='pomodoro'&&state.phase==='focus') || state.mode==='countdown';
+const isRest = () => state.phase==='short' || state.phase==='long';
+
+/* ============================================================
+   SECTION 6 · clock：单调时钟 + 跨睡眠校正（文档 6.3）
+   ============================================================ */
+const Clock = {
+  now(){ return performance.now(); },
+  wall(){ return Date.now(); }
+};
+
+/* ============================================================
+   SECTION 7 · spring：可中断、继承速度的弹簧
+   - 从当前 value / velocity 继续，中途反向不跳变
+   ============================================================ */
+class Spring{
+  constructor(value,{response=.4,damping=1,onUpdate}={}){
+    this.value=value; this.target=value; this.velocity=0;
+    this.response=response; this.damping=damping;
+    this.onUpdate=onUpdate; this.raf=null; this.last=0;
+    try{ if(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) this.response=.14; }catch(e){}
+  }
+  set(target,velocity){
+    this.target=target;
+    if(typeof velocity==='number') this.velocity=velocity;
+    if(this.raf) return;
+    this.last=Clock.now();
+    const step = t => {
+      const dt=clamp((t-this.last)/1000,0,.032); this.last=t;
+      const omega=2/Math.max(this.response,.016);
+      const x=this.value-this.target;
+      const acc=-omega*omega*x - 2*this.damping*omega*this.velocity;
+      this.velocity+=acc*dt;
+      this.value+=this.velocity*dt;
+      const settled=Math.abs(this.value-this.target)<.001 && Math.abs(this.velocity)<.01;
+      if(settled){ this.value=this.target; this.velocity=0; this.raf=null; }
+      this.onUpdate?.(this.value);
+      if(!settled) this.raf=requestAnimationFrame(step);
+    };
+    this.raf=requestAnimationFrame(step);
+  }
+}
+const sheetSprings = new Map();
+function sheetSpring(id){
+  if(!sheetSprings.has(id)){
+    const el=$(id);
+    sheetSprings.set(id,new Spring(0,{response:.3,damping:.85,onUpdate:v=>{
+      el.style.setProperty('--enter',clamp(v,0,1).toFixed(4));
+    }}));
+  }
+  return sheetSprings.get(id);
+}
+const toastSpring = new Spring(0,{response:.28,damping:1,onUpdate:v=>$('toast').style.setProperty('--enter',clamp(v,0,1).toFixed(4))});
+let toastTimer=null;
+function toast(msg){
+  const el=$('toast'); el.textContent=msg; el.hidden=false;
+  toastSpring.set(1);
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>toastSpring.set(0),2200);
+}
+
+/* ============================================================
+   SECTION 8 · sound：Web Audio 本地合成（零音频文件）
+   ============================================================ */
+const Sound = {
+  ctx:null, master:null, noise:null, nodes:[], timers:[],
+  init(){
+    if(this.ctx) return;
+    try{
+      const AC=window.AudioContext||window.webkitAudioContext;
+      if(!AC) return;
+      this.ctx=new AC();
+      this.master=this.ctx.createGain();
+      this.master.gain.value=state.volume;
+      this.master.connect(this.ctx.destination);
+      const len=this.ctx.sampleRate*2;
+      const buf=this.ctx.createBuffer(1,len,this.ctx.sampleRate);
+      const d=buf.getChannelData(0);
+      for(let i=0;i<len;i++) d[i]=Math.random()*2-1;
+      this.noise=buf;
+    }catch(e){ this.ctx=null; this.master=null; }   // 音频不可用：静默降级，不影响计时
+  },
+  resume(){ this.init(); try{ if(this.ctx?.state==='suspended') this.ctx.resume().catch?.(()=>{}); }catch(e){} },
+  _noiseSource(){
+    const s=this.ctx.createBufferSource(); s.buffer=this.noise; s.loop=true; s.start(); return s;
+  },
+  _filter(type,freq,q){ const f=this.ctx.createBiquadFilter(); f.type=type; f.frequency.value=freq; if(q)f.Q.value=q; return f; },
+  _gain(v){ const g=this.ctx.createGain(); g.gain.value=v; return g; },
+  _lfo(freq,depth,target){
+    const o=this.ctx.createOscillator(); o.frequency.value=freq;
+    const g=this._gain(depth); o.connect(g); g.connect(target); o.start();
+    this.nodes.push(o,g);
+  },
+  _chain(src,chain){
+    let node=src;
+    chain.forEach(n=>{ node.connect(n); node=n; });
+    node.connect(this.master);
+    this.nodes.push(src,...chain);
+  },
+  start(kind){
+    try{ this._start(kind); }catch(e){ this.stop(); }   // 任何音频异常都不影响计时
+  },
+  _start(kind){
+    this.stop();
+    if(kind==='off'||!this.ctx) return;
+    const src=this._noiseSource();
+    if(kind==='rain'){
+      const hp=this._filter('highpass',600), bp=this._filter('bandpass',1700,.7);
+      this._chain(src,[hp,bp,this._gain(.38)]);
+      const bed=this._noiseSource();
+      this._chain(bed,[this._filter('lowpass',380),this._gain(.16)]);
+    }else if(kind==='waves'){
+      const lp=this._filter('lowpass',480), g=this._gain(.42);
+      this._chain(src,[lp,g]); this._lfo(.09,.3,g.gain);
+    }else if(kind==='fire'){
+      const lp=this._filter('lowpass',420), g=this._gain(.34);
+      this._chain(src,[lp,g]);
+      const rumble=this.ctx.createOscillator(); rumble.frequency.value=110;
+      this._chain(rumble,[this._gain(.06)]);
+      const crack=()=>{
+        if(!this.ctx||state.sound!=='fire') return;
+        const c=this._noiseSource();
+        const f=this._filter('bandpass',2300,3), g=this._gain(.22);
+        c.connect(f); f.connect(g); g.connect(this.master);
+        setTimeout(()=>{ try{c.stop();c.disconnect();f.disconnect();g.disconnect();}catch(e){} },70);
+        this.timers.push(setTimeout(crack,90+Math.random()*410));
+      };
+      this.timers.push(setTimeout(crack,200));
+    }else if(kind==='fan'){
+      this._chain(src,[this._filter('lowpass',300),this._filter('bandpass',110,.8),this._gain(.34)]);
+    }
+  },
+  stop(){
+    this.timers.forEach(clearTimeout); this.timers=[];
+    this.nodes.forEach(n=>{ try{n.stop?.();n.disconnect();}catch(e){} });
+    this.nodes=[];
+  },
+  volume(v){ if(this.master) this.master.gain.value=v; },
+  /* 三音符柔和钟声：专注/休息完成 */
+  chime(){
+    try{ this._chime(); }catch(e){}
+  },
+  _chime(){
+    this.resume(); if(!this.ctx) return;
+    [659.25,783.99,1046.5].forEach((f,i)=>{
+      const o=this.ctx.createOscillator(), g=this.ctx.createGain();
+      const t=this.ctx.currentTime+i*.16;
+      o.type='sine'; o.frequency.value=f;
+      g.gain.setValueAtTime(0,t);
+      g.gain.linearRampToValueAtTime(.16,t+.02);
+      g.gain.exponentialRampToValueAtTime(.0001,t+.9);
+      o.connect(g); g.connect(this.ctx.destination); o.start(t); o.stop(t+.95);
+    });
+  },
+  /* 收工 / 跳过：单次短促轻提示，与“完成”区分 */
+  blip(){
+    try{ this._blip(); }catch(e){}
+  },
+  _blip(){
+    this.resume(); if(!this.ctx) return;
+    const o=this.ctx.createOscillator(), g=this.ctx.createGain();
+    const t=this.ctx.currentTime;
+    o.type='sine'; o.frequency.value=880;
+    g.gain.setValueAtTime(.001,t);
+    g.gain.linearRampToValueAtTime(.09,t+.012);
+    g.gain.exponentialRampToValueAtTime(.0001,t+.22);
+    o.connect(g); g.connect(this.ctx.destination); o.start(t); o.stop(t+.24);
+  }
+};
+
+/* ============================================================
+   SECTION 9 · stats：localStorage 读写与口径（文档 6.5）
+   ============================================================ */
+const KEY='focus_stats_v1';
+const Stats = {
+  data:{days:{},notes:[]},
+  load(){
+    try{
+      const raw=localStorage.getItem(KEY);
+      if(raw){ const o=JSON.parse(raw); this.data.days=o.days||{}; this.data.notes=o.notes||[]; }
+    }catch(e){ /* 隐私模式：仅本次会话有效 */ }
+  },
+  save(){
+    try{ localStorage.setItem(KEY,JSON.stringify(this.data)); state.dirty=false; }catch(e){}
+  },
+  todayKey(){
+    const d=new Date();
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  },
+  addSec(dt){
+    const k=this.todayKey();
+    if(!this.data.days[k]) this.data.days[k]={sec:0,n:0};
+    this.data.days[k].sec+=dt; state.dirty=true;
+  },
+  addSegment(){
+    const k=this.todayKey();
+    if(!this.data.days[k]) this.data.days[k]={sec:0,n:0};
+    this.data.days[k].n+=1; state.dirty=true;
+  },
+  addNote(text){
+    this.data.notes.unshift({t:Date.now(),text,done:false});
+    if(this.data.notes.length>30) this.data.notes.length=30;
+    this.save();
+  },
+  streak(){
+    let d=new Date(), count=0;
+    const secOf=key=>this.data.days[key]?.sec||0;
+    const keyOf=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
+    if(secOf(keyOf(d))<=0) d.setDate(d.getDate()-1);
+    while(secOf(keyOf(d))>0){ count++; d.setDate(d.getDate()-1); }
+    return count;
+  },
+  clear(){ this.data={days:{},notes:[]}; this.save(); }
+};
+
+/* ============================================================
+   SECTION 10 · timer：计时引擎与模式语义（文档 3.1.1）
+   ============================================================ */
+function durationFor(phase){
+  if(phase==='focus') return DEFAULTS.pomodoro.focus;
+  if(phase==='short') return DEFAULTS.pomodoro.short;
+  if(phase==='long') return DEFAULTS.pomodoro.long;
+  if(phase==='countdown') return state.customMin*60;
+  return 0;
+}
+function setPhase(phase,{keepRunning=true}={}){
+  state.phase=phase;
+  state.remaining=durationFor(phase);
+  state.elapsed=0;
+  if(state.running&&keepRunning){
+    state.endPerf=Clock.now()+state.remaining*1000;
+    state.lastPerf=Clock.now(); state.lastWall=Clock.wall();
+  }
+  document.body.classList.toggle('rest',isRest());
+  render();
+}
+function requestLock(){
+  try{
+    if(!('wakeLock' in navigator)) return;
+    const p=navigator.wakeLock.request('screen');
+    p?.then(l=>{
+      state.lock=l;
+      l.addEventListener?.('release',()=>{ state.lock=null; });
+    })?.catch?.(()=>{});
+  }catch(e){}   // 常亮不可用：静默降级
+}
+function releaseLock(){ try{ state.lock?.release(); }catch(e){} state.lock=null; }
+function flush(){ if(state.dirty) Stats.save(); }
+
+function start(){
+  if(state.running) return;
+  document.body.classList.remove('done');
+  Sound.resume();
+  if(state.sound!=='off') Sound.start(state.sound);
+  state.running=true;
+  if(state.mode!=='stopwatch'){
+    state.endPerf=Clock.now()+state.remaining*1000;
+  }
+  state.lastPerf=Clock.now(); state.lastWall=Clock.wall();
+  requestLock();
+  renderControls();
+  state.raf=requestAnimationFrame(frame);
+}
+function pause(silent=false){
+  if(!state.running) return;
+  if(state.mode!=='stopwatch') state.remaining=Math.max(0,(state.endPerf-Clock.now())/1000);
+  state.running=false;
+  cancelAnimationFrame(state.raf); state.raf=null;
+  Sound.stop(); releaseLock(); flush(); renderControls();
+  if(!silent) toast('已暂停');
+}
+function frame(){
+  if(!state.running) return;
+  const p=Clock.now(), w=Clock.wall();
+  let dt=(p-state.lastPerf)/1000;
+  const wallDt=(w-state.lastWall)/1000;
+  if(wallDt-dt>2){ state.endPerf+=(wallDt-dt)*1000; toast('检测到系统睡眠，已对齐时间'); }
+  if(dt<0) dt=0;
+  state.lastPerf=p; state.lastWall=w;
+  dt=Math.min(dt,1);
+
+  if(state.mode==='stopwatch'){
+    state.elapsed+=dt;
+    Stats.addSec(dt);
+  }else{
+    state.remaining=Math.max(0,(state.endPerf-p)/1000);
+    if(isFocusLike()) Stats.addSec(dt);
+    if(state.remaining<=0){ completePhase(); return; }
+  }
+  state.saveTick+=dt;
+  if(state.saveTick>5){ state.saveTick=0; flush(); }
+  render();
+  state.raf=requestAnimationFrame(frame);
+}
+let doneTimer=null;
+function celebrateDone(){
+  document.body.classList.add('done');
+  clearTimeout(doneTimer);
+  doneTimer=setTimeout(()=>{ document.body.classList.remove('done'); render(); },2600);
+}
+function completePhase(){
+  Sound.chime();
+  if(state.mode==='pomodoro'){
+    if(state.phase==='focus'){
+      Stats.addSegment(); state.cycle++;
+      setPhase(state.cycle%4===0?'long':'short');
+    }else{
+      if(state.phase==='long') state.cycle=0;
+      setPhase('focus');
+    }
+    flush();
+  }else if(state.mode==='countdown'){
+    pause(true);
+    state.remaining=durationFor('countdown');
+    celebrateDone();
+    toast('圆满完成'); render();
+  }
+}
+/* S 键：只保留已实际专注的 tick，不加段数（文档 3.1.1） */
+function endCurrent(){
+  if(state.mode==='pomodoro'){
+    if(state.phase==='focus'){
+      Sound.blip(); setPhase('short');
+      toast('已跳过专注段，未计入段数');
+    }else{
+      if(state.phase==='long') state.cycle=0;
+      Sound.blip(); setPhase('focus');
+      toast('已跳到专注段');
+    }
+    flush();
+  }else if(state.mode==='countdown'){
+    pause(true); state.remaining=durationFor('countdown');
+    Sound.blip(); toast('已放弃本段'); render();
+  }else{
+    pause(true); Sound.blip(); toast('本次投入已记录');
+    setTimeout(()=>{ if(!state.running&&state.mode==='stopwatch'){ state.elapsed=0; render(); } },2000);
+  }
+}
+/* R 键（文档 3.1.1） */
+function resetCurrent(){
+  pause(true);
+  document.body.classList.remove('done');
+  if(state.mode==='pomodoro'){
+    if(state.phase!=='focus'){ state.cycle=0; document.body.classList.remove('rest'); }
+    state.phase='focus'; state.remaining=durationFor('focus');
+  }else if(state.mode==='countdown'){
+    state.remaining=durationFor('countdown');
+  }else{
+    state.elapsed=0;
+  }
+  flush(); render(); toast('已重置');
+}
+function setMode(mode){
+  pause(true);
+  document.body.classList.remove('done');
+  state.mode=mode; state.cycle=0;
+  document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('on',b.dataset.mode===mode));
+  setPhase(mode==='pomodoro'?'focus':mode==='countdown'?'countdown':'stopwatch',{keepRunning:false});
+  renderControls();
+}
+
+/* ============================================================
+   SECTION 11 · ui：渲染、文案、闲置隐身、弹层
+   ============================================================ */
+const DEFAULT_TASK='今天，专注一件事';
+const REST_TASK='看看远处，喝口水';
+const STOPWATCH_TASK='记录投入的每一分钟';
+const PHASE_TEXT={focus:'专注中',short:'短休',long:'长休',countdown:'倒计时',stopwatch:'正计时'};
+function fmt(sec){
+  const s=Math.max(0,Math.ceil(sec));
+  return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+}
+function fmtHm(sec){
+  const h=Math.floor(sec/3600), m=Math.floor(sec%3600/60);
+  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+}
+function phaseText(){
+  if(document.body.classList.contains('done')) return '圆满完成';
+  if(!state.running && state.mode!=='stopwatch' && Math.abs(state.remaining-durationFor(state.phase))<.5) return '准备开始';
+  return PHASE_TEXT[state.phase]||'专注中';
+}
+function taskText(){
+  if(document.body.classList.contains('done')) return '这一段，圆满了';
+  if(state.task) return state.task;
+  if(isRest()) return REST_TASK;
+  if(state.mode==='stopwatch') return STOPWATCH_TASK;
+  return DEFAULT_TASK;
+}
+function render(){
+  let ringP, lineP;
+  if(state.mode==='stopwatch'){
+    ringP=(state.elapsed%3600)/3600;
+    lineP=(state.elapsed%60)/60;
+  }else{
+    const total=durationFor(state.phase)||1;
+    ringP=lineP=clamp(1-state.remaining/total,0,1);
+  }
+  $('ringProgress').style.strokeDashoffset=(552.92*(1-ringP)).toFixed(2);
+  $('edgeFill').style.width=(lineP*100).toFixed(2)+'%';
+  $('timeDisplay').textContent=fmt(state.mode==='stopwatch'?state.elapsed:state.remaining);
+
+  if(state.mode==='stopwatch'){
+    const h=Math.floor(state.elapsed/3600);
+    $('phaseLabel').textContent = document.body.classList.contains('done') ? '圆满完成'
+      : (h>0?('第 '+(h+1)+' 小时 · 正计时'):'正计时');
+    const marks=$('lapMarks');
+    const laps=Math.min(3,h);
+    if(marks.childElementCount!==laps){
+      marks.textContent='';
+      for(let i=0;i<laps;i++){
+        const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+        const a=-Math.PI/2+i*2*Math.PI/3;
+        c.setAttribute('cx',(100+Math.cos(a)*96).toFixed(2));
+        c.setAttribute('cy',(100+Math.sin(a)*96).toFixed(2));
+        c.setAttribute('r','1.6'); c.setAttribute('class','lap-dot');
+        marks.appendChild(c);
+      }
+    }
+  }else{
+    $('phaseLabel').textContent=phaseText();
+    if($('lapMarks').childElementCount) $('lapMarks').textContent='';
+  }
+  $('taskName').textContent=taskText();
+  renderHud();
+}
+let lastHudKey='';
+function renderHud(force=false){
+  const d=Stats.data.days[Stats.todayKey()]||{sec:0,n:0};
+  const min=Math.floor(d.sec/60), streak=Stats.streak();
+  const key=min+'-'+d.n+'-'+streak;
+  if(!force&&key===lastHudKey) return;
+  lastHudKey=key;
+  $('hudSec').textContent=fmtHm(d.sec);
+  $('hudN').textContent=d.n;
+  $('hudStreak').textContent=streak;
+  $('cardH').textContent=Math.floor(d.sec/3600);
+  $('cardM').textContent=min%60;
+  $('cardN').textContent=d.n;
+  $('cardStreak').textContent=streak;
+}
+function renderControls(){
+  $('btnToggle').textContent=state.running?'Ⅱ':'▶';
+  $('btnToggle').setAttribute('aria-label',state.running?'暂停':'开始');
+}
+function renderStats(){
+  renderHud(true);
+  const chart=$('chart'); chart.textContent='';
+  const days=[];
+  for(let i=6;i>=0;i--){
+    const d=new Date(); d.setDate(d.getDate()-i);
+    const k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    days.push({k,label:i===0?'今':['日','一','二','三','四','五','六'][d.getDay()],sec:Stats.data.days[k]?.sec||0});
+  }
+  const max=Math.max(60,...days.map(x=>x.sec));
+  days.forEach(x=>{
+    const w=document.createElement('div'); w.className='bar-wrap';
+    const b=document.createElement('div'); b.className='bar'+(x.k===Stats.todayKey()?' today':'');
+    b.style.height=Math.max(3,x.sec/max*100).toFixed(1)+'%';
+    const l=document.createElement('div'); l.className='bar-label'; l.textContent=x.label;
+    w.append(b,l); chart.appendChild(w);
+  });
+  const list=$('noteList'); list.textContent='';
+  if(!Stats.data.notes.length){
+    const p=document.createElement('div'); p.className='hint'; p.textContent='还没有杂念记录。按 N 可以随时记下。';
+    list.appendChild(p);
+  }
+  Stats.data.notes.forEach((n,i)=>{
+    const row=document.createElement('div'); row.className='note-row'+(n.done?' done':'');
+    const t=document.createElement('span'); t.className='t';
+    t.textContent=new Date(n.t).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+    const txt=document.createElement('span'); txt.className='txt'; txt.textContent=n.text;
+    const btn=document.createElement('button'); btn.type='button'; btn.className='tiny';
+    btn.textContent=n.done?'已处理':'标记处理';
+    btn.onclick=()=>{ Stats.data.notes[i].done=!n.done; Stats.save(); renderStats(); };
+    row.append(t,txt,btn); list.appendChild(row);
+  });
+}
+function openSheet(id){
+  $(id).hidden=false;
+  sheetSpring(id).set(1);
+  if(id==='statsSheet') renderStats();
+  activity();
+}
+function closeSheet(id){
+  const s=sheetSpring(id); s.set(0);
+  setTimeout(()=>{ if(s.value<=.001) $(id).hidden=true; },420);
+}
+/* 闲置检测：3 秒无操作 + 热区例外（文档 3.2.1） */
+let idleTimer=null;
+function canHide(){
+  if(!state.running) return false;
+  if(!$('statsSheet').hidden||!$('noteSheet').hidden||!$('settingsSheet').hidden) return false;
+  const a=document.activeElement;
+  if(a&&a.closest('.dock,.sheet')) return false;
+  const r=$('dock').getBoundingClientRect();
+  if(pointer.x>=r.left-24&&pointer.x<=r.right+24&&pointer.y>=r.top-24&&pointer.y<=r.bottom+24) return false;
+  return true;
+}
+function activity(){
+  document.body.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer=setTimeout(()=>{ if(canHide()) document.body.classList.add('idle'); },3000);
+}
+
+/* ============================================================
+   SECTION 12 · events：键盘 / 全屏 / 可见性 / Wake Lock
+   ============================================================ */
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    if(!$('noteSheet').hidden){ closeSheet('noteSheet'); return; }
+    if(!$('settingsSheet').hidden){ closeSheet('settingsSheet'); return; }
+    if(!$('statsSheet').hidden){ closeSheet('statsSheet'); return; }
+  }
+  if(e.target && typeof e.target.closest==='function' && e.target.closest('input,textarea,select')) return;
+  if(e.code==='Space'){ e.preventDefault(); state.running?pause():start(); }
+  else if(e.key==='r'||e.key==='R') resetCurrent();
+  else if(e.key==='s'||e.key==='S') endCurrent();
+  else if(e.key==='n'||e.key==='N'){ openSheet('noteSheet'); setTimeout(()=>$('noteInput').focus(),0); }
+  else if(e.key==='f'||e.key==='F') toggleFullscreen();
+});
+document.addEventListener('pointermove',e=>{ pointer.x=e.clientX; pointer.y=e.clientY; activity(); },{passive:true});
+document.addEventListener('pointerdown',activity,{passive:true});
+document.addEventListener('focusin',activity);
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden&&state.running){ pause(true); toast('检测到离开页面，已自动暂停'); }
+});
+window.addEventListener('pagehide',flush);
+
+async function toggleFullscreen(){
+  try{
+    if(!document.fullscreenElement&&!document.webkitFullscreenElement){
+      const el=document.documentElement;
+      await (el.requestFullscreen||el.webkitRequestFullscreen)?.call(el);
+    }else{
+      await (document.exitFullscreen||document.webkitExitFullscreen)?.call(document);
+    }
+  }catch(e){}
+}
+function syncFullBtn(){
+  $('btnFull').textContent=(document.fullscreenElement||document.webkitFullscreenElement)?'退出全屏':'全屏';
+}
+document.addEventListener('fullscreenchange',syncFullBtn);
+document.addEventListener('webkitfullscreenchange',syncFullBtn);
+
+$('btnToggle').onclick=()=>state.running?pause():start();
+$('btnReset').onclick=resetCurrent;
+$('btnEnd')?.addEventListener('click',endCurrent);
+$('btnFull').onclick=toggleFullscreen;
+$('btnStats').onclick=()=>openSheet('statsSheet');
+$('btnSettings').onclick=()=>openSheet('settingsSheet');
+$('btnNote').onclick=()=>{ openSheet('noteSheet'); setTimeout(()=>$('noteInput').focus(),0); };
+document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closeSheet(b.dataset.close));
+document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+$('taskInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){ state.task=e.target.value.trim(); e.target.blur(); render(); }
+});
+$('duration').onchange=e=>{
+  const v=clamp(parseInt(e.target.value,10)||25,1,600);
+  state.customMin=v;
+  if(state.mode==='countdown') setPhase('countdown',{keepRunning:false});
+};
+$('customMin').onchange=e=>{
+  const v=clamp(parseInt(e.target.value,10)||0,1,600);
+  if(!v){ e.target.value=''; return; }
+  e.target.value=v; state.customMin=v;
+  $('duration').value=[15,25,45,60,90].includes(v)?String(v):'25';
+  if(state.mode==='countdown') setPhase('countdown',{keepRunning:false});
+};
+$('sound').onchange=e=>{
+  state.sound=e.target.value;
+  Sound.resume();
+  if(state.running&&state.sound!=='off') Sound.start(state.sound);
+  else Sound.stop();
+};
+$('volume').oninput=e=>{ state.volume=clamp(e.target.value/100,0,1); Sound.volume(state.volume); };
+$('noteInput').addEventListener('keydown',e=>{
+  if(e.key!=='Enter') return;
+  const text=e.target.value.trim();
+  if(text){ Stats.addNote(text); toast('已记下，继续专注'); }
+  e.target.value=''; closeSheet('noteSheet'); $('btnToggle').focus();
+});
+$('btnClear').onclick=()=>{
+  if(!confirm('将删除「今日与每日专注统计」和「全部杂念记录」，且不可撤销。确认清空？')) return;
+  Stats.clear(); renderStats(); renderHud(true); render(); toast('数据已清空');
+};
+
+/* ============================================================
+   SECTION 13 · bootstrap
+   ============================================================ */
+Stats.load();
+setPhase('focus',{keepRunning:false});
+renderControls();
+activity();
+</script>
+</body>
+</html>
